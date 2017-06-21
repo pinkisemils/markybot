@@ -10,6 +10,7 @@ extern crate regex;
 
 //use std::fs;
 use std::collections::HashMap;
+use std::{thread, time};
 
 use std::net::ToSocketAddrs;
 use tokio_core::reactor::Core;
@@ -17,6 +18,8 @@ use futures::{Future, Stream, Sink, stream};
 use futures_cpupool::CpuPool;
 
 use tokio_irc_client::Client;
+use tokio_irc_client::error::Error as IrcErr;
+use tokio_irc_client::error::ErrorKind as IrcErrKind;
 use pircolate::message::Message;
 use pircolate::message;
 use pircolate::message::client::priv_msg;
@@ -36,7 +39,7 @@ trait BotCmd {
 
 struct CmdHandlers<H>
     where H: BotCmd{
-    //prefix_map: HashMap<String, Box<BotCmd>>,
+    prefix_map: HashMap<String, Box<H>>,
     re_vec: Vec<(regex::Regex, Box<H>)>,
 }
 
@@ -45,6 +48,7 @@ type CmdHandlerss = HashMap<String, Box<BotCmd>>;
 
 fn main() {
     let mut ev = Core::new().unwrap();
+    let pool = CpuPool::new_num_cpus();
     let handle = ev.handle();
 
     // Do a DNS query and get the first socket address for Freenode
@@ -67,15 +71,27 @@ fn main() {
                     if let Some((nick, _, _)) = incoming_message.prefix() {
                         let pircolate::command::PrivMsg(chan, msg) = pmsg;
                         println!("nick<{}> user: {} msg: {}", nick, chan, msg);
-                        return Some(priv_msg(chan, msg).unwrap());
+                        let cp = || {
+                            thread::sleep(time::Duration::from_secs(2));
+                            println!("slept for two seconds");
+                            return Ok(priv_msg(chan, msg));
+                        };
+                        return Some(pool.spawn_fn(cp));
                     }
                 }
                 return None;
+            }).filter_map(|m| {
+                    if let Ok(msg) = m {
+                        Some(sink.send(m))
+                    } else {
+                        None
+                    }
             });
+            return s;
 
-
-            sink.send_all(s)
-        }).and_then(|_| { Ok(()) });
+        }).and_then(|_| {
+            Ok(())
+        });
 
     ev.run(client).unwrap();
 
