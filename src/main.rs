@@ -8,7 +8,6 @@ extern crate futures_cpupool;
 extern crate regex;
 
 
-//use std::fs;
 use std::collections::HashMap;
 use std::{thread, time};
 
@@ -64,35 +63,31 @@ fn main() {
 
             irc.send_all(stream::iter(connect_sequence))
         }).and_then(|(irc, _)| {
-            let (sink, stream) = irc.split();
-
-            let s = stream.filter_map(|incoming_message| {
-                if let Some(pmsg) = incoming_message.command::<PrivMsg>() {
-                    if let Some((nick, _, _)) = incoming_message.prefix() {
-                        let pircolate::command::PrivMsg(chan, msg) = pmsg;
-                        println!("nick<{}> user: {} msg: {}", nick, chan, msg);
-                        let cp = || {
-                            thread::sleep(time::Duration::from_secs(2));
-                            println!("slept for two seconds");
-                            return Ok(priv_msg(chan, msg));
-                        };
-                        return Some(pool.spawn_fn(cp));
-                    }
-                }
-                return None;
-            }).filter_map(|m| {
-                    if let Ok(msg) = m {
-                        Some(sink.send(m))
-                    } else {
-                        None
-                    }
-            });
-            return s;
-
-        }).and_then(|_| {
-            Ok(())
+            Ok(irc.split())
         });
 
-    ev.run(client).unwrap();
+    let (sink, stream) = ev.run(client).expect("Failed to connect");
+    let sendable_messages = stream.filter_map(|incoming_message| {
+        if let Some(pmsg) = incoming_message.command::<PrivMsg>() {
+            if let Some((nick, _, _)) = incoming_message.prefix() {
+                let pircolate::command::PrivMsg(chan, msg) = pmsg;
+                return Some(priv_msg(chan, msg).unwrap());
+            }
+        }
+        return None;
+    });
+    let procesed_messages = sendable_messages.and_then(|msg| {
+        pool.spawn_fn(|| {
+            thread::sleep(time::Duration::from_secs(2));
+            return Ok(msg);
+        })
+
+    });
+    let f = sink.send_all(procesed_messages).and_then(|_| {
+        Ok(())
+    });
+    ev.run(f).unwrap();
+
+
 
 }
