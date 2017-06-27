@@ -6,9 +6,14 @@ extern crate tokio_core;
 extern crate tokio_pool;
 extern crate futures_cpupool;
 extern crate regex;
+extern crate glob;
+
+#[macro_use] extern crate itertools;
+#[macro_use] extern crate nom;
+
+mod marky;
 
 
-use std::collections::HashMap;
 use std::{thread, time};
 
 use std::net::ToSocketAddrs;
@@ -17,39 +22,41 @@ use futures::{Future, Stream, Sink, stream};
 use futures_cpupool::CpuPool;
 
 use tokio_irc_client::Client;
-use tokio_irc_client::error::Error as IrcErr;
-use tokio_irc_client::error::ErrorKind as IrcErrKind;
-use pircolate::message::Message;
 use pircolate::message;
 use pircolate::message::client::priv_msg;
 use pircolate::command::PrivMsg;
 
-pub enum Trig {
-    Re(regex::Regex),
-    StrPrefix(String),
-    Both(regex::Regex, String),
-}
-
-trait BotCmd {
-    fn process(&self, nick: &str, chan: &str, msg: &str) -> Future<Item=Option<Message>, Error=tokio_irc_client::error::Error>;
-    fn trigger() -> Trig;
-}
-
-
-struct CmdHandlers<H>
-    where H: BotCmd{
-    prefix_map: HashMap<String, Box<H>>,
-    re_vec: Vec<(regex::Regex, Box<H>)>,
-}
-
-type CmdHandlerss = HashMap<String, Box<BotCmd>>;
+//pub enum Trig {
+//    Re(regex::Regex),
+//    StrPrefix(String),
+//    Both(regex::Regex, String),
+//}
+//
+//trait BotCmd {
+//    fn process(&self, nick: &str, chan: &str, msg: &str) -> Future<Item=Option<Message>, Error=tokio_irc_client::error::Error>;
+//    fn trigger() -> Trig;
+//}
+//
+//
+//struct CmdHandlers<H>
+//    where H: BotCmd{
+//    prefix_map: HashMap<String, Box<H>>,
+//    re_vec: Vec<(regex::Regex, Box<H>)>,
+//}
+//
+//type CmdHandlerss = HashMap<String, Box<BotCmd>>;
 
 
 fn main() {
+    marky::analyze();
+    run_irc();
+}
+
+fn run_irc() {
     let mut ev = Core::new().unwrap();
     let pool = CpuPool::new_num_cpus();
     let handle = ev.handle();
-
+    println!("{:?}", marky::parse_line("[00:47:47] <emilsp> Dawgora: kekekekekekekekekekekekek"));
     // Do a DNS query and get the first socket address for Freenode
     let addr = "localhost:6667".to_socket_addrs().unwrap().next().unwrap();
 
@@ -69,7 +76,7 @@ fn main() {
     let (sink, stream) = ev.run(client).expect("Failed to connect");
     let sendable_messages = stream.filter_map(|incoming_message| {
         if let Some(pmsg) = incoming_message.command::<PrivMsg>() {
-            if let Some((nick, _, _)) = incoming_message.prefix() {
+            if let Some((_, _, _)) = incoming_message.prefix() {
                 let pircolate::command::PrivMsg(chan, msg) = pmsg;
                 return Some(priv_msg(chan, msg).unwrap());
             }
@@ -87,7 +94,5 @@ fn main() {
         Ok(())
     });
     ev.run(f).unwrap();
-
-
 
 }
