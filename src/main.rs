@@ -1,3 +1,5 @@
+#![feature(conservative_impl_trait)]
+
 extern crate markov;
 extern crate tokio_irc_client;
 extern crate futures;
@@ -7,7 +9,9 @@ extern crate tokio_pool;
 extern crate futures_cpupool;
 extern crate regex;
 extern crate glob;
+extern crate lazysort;
 
+#[macro_use] extern crate lazy_static;
 #[macro_use] extern crate itertools;
 #[macro_use] extern crate nom;
 
@@ -56,7 +60,6 @@ fn run_irc() {
     let mut ev = Core::new().unwrap();
     let pool = CpuPool::new_num_cpus();
     let handle = ev.handle();
-    println!("{:?}", marky::parse_line("[00:47:47] <emilsp> Dawgora: kekekekekekekekekekekekek"));
     // Do a DNS query and get the first socket address for Freenode
     let addr = "localhost:6667".to_socket_addrs().unwrap().next().unwrap();
 
@@ -94,5 +97,4 @@ fn run_irc() {
         Ok(())
     });
     ev.run(f).unwrap();
-
 }
