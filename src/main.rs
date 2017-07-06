@@ -1,4 +1,5 @@
 #![feature(conservative_impl_trait)]
+#![feature(str_checked_slicing)]
 
 extern crate markov;
 extern crate tokio_irc_client;
@@ -10,6 +11,8 @@ extern crate futures_cpupool;
 extern crate regex;
 extern crate glob;
 extern crate lazysort;
+extern crate edit_distance;
+extern crate rayon;
 
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate itertools;

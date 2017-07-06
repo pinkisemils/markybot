@@ -13,8 +13,12 @@ use std::path::Path;
 use std::cmp;
 use std::string::String;
 
+use markov::Chain;
+
 use itertools::Itertools;
 use lazysort::SortedBy;
+use edit_distance::edit_distance;
+use rayon::prelude::*;
 
 
 named!(irssi_timestr<&str>,
@@ -71,6 +75,9 @@ struct Anal {
     pub users: HashMap<String, u64>,
     pub length: HashMap<usize, u64>,
     pub words: HashMap<String, u64>,
+    pub lines: HashSet<String>,
+    pub chains: HashMap<String, Chain<String>>,
+    pub chain: Chain<String>,
 }
 
 impl Anal {
@@ -87,9 +94,11 @@ impl Anal {
         for w in  word_iter {
             *self.words.entry(w.into()).or_insert(0) += 1;
         }
+        self.lines.insert(msg.into());
+        self.chain.feed_str(msg);
     }
 
-    fn print(&self) {
+    fn print(&mut self) {
         println!("Lengths");
         println!("\t length \t occurence");
         let sorted_l_iter = SortedBy::sorted_by(self.length.iter(),
@@ -105,7 +114,15 @@ impl Anal {
             println!("\t {} \t {}", occurence, nick);
         }
 
+        {
+            let s = "sie";
+            println!("{} -> {:?}", s, self.words.entry(s.into()));
+            let s = "Sie";
+            println!("{} -> {:?}", s, self.words.entry(s.into()));
+            let s = "SIE";
+            println!("{} -> {:?}", s, self.words.entry(s.into()));
 
+        }
         let sorted_words = SortedBy::sorted_by(self.words.iter(),
                                               |&(_, oa), &(_, ob)| reverse(oa.cmp(ob)));
         println!("Words");
@@ -135,37 +152,36 @@ impl Anal {
             println!("\t {} \t {} \t {}", word_l, word, pop);
 
         }
-        let nick_mentions: HashMap<&str, u64> = HashMap::new();
         let user_vec = self.users.keys()
                 .map(|u| u.to_lowercase())
                 .collect::<Vec<String>>();
-        let nick_mentions = self.words.iter()
-                                .map(|(w,_)| w.to_lowercase())
-                                .fold(nick_mentions, |mut mentions, word| {
+        self.chains = self.lines.iter()
+                                .fold(HashMap::new(), |mut chains, line| {
                                     {
                                         let metnioned = user_vec.iter()
-                                            .filter_map(|u| {
-                                                if word.starts_with(u) {
-                                                    Some(u)
-                                                } else {
-                                                    None
-                                                }
+                                            .filter(|user| {
+                                                line.split(|c: char| c.is_whitespace())
+                                                    .map(|w| w.to_lowercase())
+                                                    .any(|w| similar_to_nick(&w, user))
                                             });
                                         for mu in metnioned {
-                                            *mentions.entry(mu).or_insert(0) += 1;
+                                            chains.entry(mu.clone()).or_insert(Chain::new()).feed_str(line);
                                         }
-
                                     }
-                                    mentions
+                                    chains
                                 });
-        let top_mentions = SortedBy::sorted_by(nick_mentions.iter(),
-                                              |&(_, oa), &(_, ob)| reverse(oa.cmp(ob)));
-
-        println!("Nicks my mention count");
-        println!("\t nick \t mentions");
-        for (nick, mentions) in top_mentions.take(10) {
-            println!("\t {} \t {}", nick, mentions);
+        let mut existing = 0;
+        for (user, chain) in self.chains.iter() {
+            let g = chain.generate_str();
+            println!("<cyka> {}: {}", user, g);
+            if self.lines.contains(&g) {
+                existing += 1;
+            }
         }
+        println!("{} out of {} are not new", existing, self.chains.len());
+        println!("l of chains: {}", self.chains.len());
+        println!("cyka - {}", self.chain.generate_str());
+
 
 
     }
@@ -179,11 +195,14 @@ pub fn analyze() {
                     users: HashMap::new(),
                     length: HashMap::new(),
                     words: HashMap::new(),
+                    lines: HashSet::new(),
+                    chains: HashMap::new(),
+                    chain: Chain::new(),
     };
     let r: Result<Anal, GlobError> = glob(path).expect("glob pattern invalid")
                                         .fold_results(a, analyze_file);
     match r {
-        Ok(res) => res.print(),
+        Ok(mut res) => res.print(),
         Err(_) => (),
     }
 }
@@ -215,6 +234,21 @@ fn analyze_file<P: AsRef<Path>>(a: Anal,p: P) -> Anal {
 
 }
 
+fn similar_to_nick(word: &str, nick: &str) -> bool {
+
+    if word == nick {
+        true
+    } else {
+        if word.len() < 4  || nick.len() < 4 {
+            return false;
+        }
+        let q = nick.len() / 3;
+
+        // dirty hax
+        edit_distance(&nick, word) as usize <= q
+    }
+}
+
 
 #[cfg(test)]
 mod test {
@@ -234,6 +268,15 @@ mod test {
         let result = get_msg(test_str.as_bytes());
         println!("r -> {:?}", result);
         assert!(!result.is_err());
+    }
+
+    #[test]
+    fn test_similarity() {
+        assert!(!similar_to_nick("pisies", "sie"));
+        assert!(similar_to_nick("alolsejs", "aleksejs"));
+        assert!(similar_to_nick("aloxsej", "aleksejs"));
+        assert!(!similar_to_nick("panika", "tatra"));
+        assert!(!similar_to_nick("dianshi,", "tatra"));
     }
 }
 
